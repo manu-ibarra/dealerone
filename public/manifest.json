@@ -1,0 +1,10 @@
+{
+  "name": "DealerOne",
+  "short_name": "DealerOne",
+  "description": "Single-device poker dealer manager",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F4F3EE",
+  "theme_color": "#C15F3C",
+  "icons": [{ "src": "/logo.png", "sizes": "512x512", "type": "image/png" }]
+}
