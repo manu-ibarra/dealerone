@@ -35,6 +35,8 @@ export interface Session {
   createdAt: number;
   buyIn: number;
   entryFee: number;
+  minBet: number;
+  maxBet: number | null;
   gameType: GameType;
   status: SessionStatus;
   players: Player[];

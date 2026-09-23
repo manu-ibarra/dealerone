@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { bettingRoundComplete, roundHighestBet, useGameStore } from "@/lib/store";
 import type { Player } from "@/lib/types";
+import LimitsModal from "./LimitsModal";
 
 const ROUND_LABEL: Record<string, string> = {
   preflop: "Pre-Flop",
@@ -20,8 +21,22 @@ const NEXT_STREET_LABEL: Record<string, string> = {
 };
 
 export default function ActionPanel() {
-  const { session, betAmount, setBetAmount, placeBet, call, fold, check, nextStreet, awardPot, startHand } =
-    useGameStore();
+  const {
+    session,
+    betAmount,
+    setBetAmount,
+    bet,
+    call,
+    fold,
+    check,
+    nextStreet,
+    awardPot,
+    startHand,
+    limitsModalOpen,
+    openLimitsModal,
+    closeLimitsModal,
+    setLimits,
+  } = useGameStore();
   const [winnerPanelOpen, setWinnerPanelOpen] = useState(false);
   const [winners, setWinners] = useState<string[]>([]);
 
@@ -41,13 +56,13 @@ export default function ActionPanel() {
     session.round === "preflop" && nonFolded.every((p) => p.currentBet === session.entryFee);
 
   const quickChips = [
-    { label: "5", value: 5 },
-    { label: "10", value: 10 },
-    { label: "25", value: 25 },
-    { label: "100", value: 100 },
-    { label: "1/2 Pot", value: Math.floor(session.pot / 2) },
-    { label: "Pot", value: session.pot },
-    { label: "ALL IN", value: current.stack },
+    { label: "5", value: 5, isAllIn: false },
+    { label: "10", value: 10, isAllIn: false },
+    { label: "25", value: 25, isAllIn: false },
+    { label: "100", value: 100, isAllIn: false },
+    { label: "1/2 Pot", value: Math.floor(session.pot / 2), isAllIn: false },
+    { label: "Pot", value: session.pot, isAllIn: false },
+    { label: "ALL IN", value: current.currentBet + current.stack, isAllIn: true },
   ];
 
   const openWinnerPanel = () => {
@@ -58,6 +73,14 @@ export default function ActionPanel() {
   return (
     <div className="flex h-full flex-col justify-between bg-pampas px-8 py-6">
       <div>
+        <div className="mb-2 flex justify-start">
+          <button
+            onClick={openLimitsModal}
+            className="flex h-8 items-center rounded-full border border-cloudy bg-white px-3 text-xs font-medium text-ink/70 hover:border-terracotta hover:text-terracotta"
+          >
+            ⚙️ Limites: ${session.minBet} / {session.maxBet === null ? "∞" : `$${session.maxBet}`}
+          </button>
+        </div>
         <div className="flex items-center justify-between text-sm text-ink/60">
           <span>
             Stack: <span className="font-semibold text-ink">${session.buyIn}</span>
@@ -133,19 +156,27 @@ export default function ActionPanel() {
             </p>
           )}
           <div className="flex flex-wrap gap-2">
-            {quickChips.map((c) => (
-              <button
-                key={c.label}
-                onClick={() => setBetAmount(c.value)}
-                className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
-                  betAmount === c.value
-                    ? "border-terracotta bg-terracotta text-white"
-                    : "border-cloudy text-ink/70 hover:border-terracotta hover:text-terracotta"
-                }`}
-              >
-                {c.label}
-              </button>
-            ))}
+            {quickChips.map((c) => {
+              const disabled =
+                !c.isAllIn &&
+                (c.value < session.minBet || (session.maxBet !== null && c.value > session.maxBet));
+              return (
+                <button
+                  key={c.label}
+                  onClick={() => setBetAmount(c.value)}
+                  disabled={disabled}
+                  className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
+                    disabled
+                      ? "cursor-not-allowed border-cloudy/40 text-ink/30 opacity-30"
+                      : betAmount === c.value
+                        ? "border-terracotta bg-terracotta text-white"
+                        : "border-cloudy text-ink/70 hover:border-terracotta hover:text-terracotta"
+                  }`}
+                >
+                  {c.label}
+                </button>
+              );
+            })}
           </div>
 
           <div className="flex items-center gap-4">
@@ -167,7 +198,7 @@ export default function ActionPanel() {
 
           <div className="flex gap-3">
             <button
-              onClick={() => placeBet(betAmount)}
+              onClick={() => bet(betAmount)}
               className="flex-1 rounded-full bg-terracotta py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
             >
               BET
@@ -201,6 +232,7 @@ export default function ActionPanel() {
               <Kbd>F Fold</Kbd>
               <Kbd>C Check</Kbd>
               <Kbd>↵ Apostar</Kbd>
+              <Kbd>L Limites</Kbd>
               <Kbd>Espacio Siguiente</Kbd>
             </div>
             <button
@@ -213,6 +245,15 @@ export default function ActionPanel() {
             </button>
           </div>
         </div>
+      )}
+
+      {limitsModalOpen && (
+        <LimitsModal
+          initialMin={session.minBet}
+          initialMax={session.maxBet}
+          onClose={closeLimitsModal}
+          onSave={(minBet, maxBet) => setLimits(minBet, maxBet)}
+        />
       )}
     </div>
   );

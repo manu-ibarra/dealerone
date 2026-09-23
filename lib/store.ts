@@ -40,6 +40,7 @@ interface GameState {
   session: Session | null;
   betAmount: number;
   toast: string | null;
+  limitsModalOpen: boolean;
 
   createSession: (name: string, buyIn: number, entryFee: number, playerNames: string[]) => void;
   continueSession: (id: string) => void;
@@ -47,6 +48,9 @@ interface GameState {
   saveAndExit: () => void;
   finalizeSession: () => void;
   clearToast: () => void;
+  openLimitsModal: () => void;
+  closeLimitsModal: () => void;
+  setLimits: (minBet: number, maxBet: number | null) => void;
 
   startHand: () => void;
   nextPlayer: () => void;
@@ -57,6 +61,7 @@ interface GameState {
   adjustBet: (delta: number) => void;
 
   placeBet: (targetTotal: number) => void;
+  bet: (targetTotal: number) => void;
   call: () => void;
   fold: () => void;
   check: () => void;
@@ -89,6 +94,30 @@ export function bettingRoundComplete(session: Session): boolean {
   return active.length > 0 && active.every((p) => p.hasActed && p.currentBet === highest);
 }
 
+// Validates a voluntary bet/raise (the BET button / Enter key) against the table's
+// configured min/max. The dedicated call()/check() actions never go through this, so
+// matching an existing bet is always allowed regardless of these limits; only all-ins
+// bypass them here.
+export function validateBetAmount(
+  session: Session,
+  player: Player,
+  targetTotal: number
+): { ok: boolean; reason?: string } {
+  const highest = roundHighestBet(session);
+  const isAllIn = targetTotal >= player.currentBet + player.stack;
+  if (isAllIn) return { ok: true };
+
+  // No voluntary raise yet this street (only the mandatory ante, if any) -> minBet is the floor.
+  // Otherwise raising over an existing bet must add at least minBet on top of it.
+  const isFirstVoluntaryBet = highest <= session.entryFee;
+  const requiredMin = isFirstVoluntaryBet ? session.minBet : highest + session.minBet;
+  if (targetTotal < requiredMin) return { ok: false, reason: `Minimo es $${requiredMin}` };
+  if (session.maxBet !== null && targetTotal > session.maxBet) {
+    return { ok: false, reason: `Maximo es $${session.maxBet}` };
+  }
+  return { ok: true };
+}
+
 // ponytail: heads-up (2-player) dealer-acts-first special case not implemented, treats dealer like a full ring.
 function findNextIndex(players: Player[], from: number, predicate: (p: Player) => boolean) {
   const n = players.length;
@@ -103,6 +132,7 @@ export const useGameStore = create<GameState>()((set, get) => ({
   session: null,
   betAmount: BET_STEP,
   toast: null,
+  limitsModalOpen: false,
 
   createSession: (name, buyIn, entryFee, playerNames) => {
     const players: Player[] = playerNames.map((n) => ({
@@ -120,6 +150,8 @@ export const useGameStore = create<GameState>()((set, get) => ({
       createdAt: Date.now(),
       buyIn,
       entryFee,
+      minBet: Math.max(entryFee * 2, 10),
+      maxBet: null,
       gameType: "texas_holdem" as GameType,
       status: "active",
       players,
@@ -164,6 +196,20 @@ export const useGameStore = create<GameState>()((set, get) => ({
   },
 
   clearToast: () => set({ toast: null }),
+  openLimitsModal: () => set({ limitsModalOpen: true }),
+  closeLimitsModal: () => set({ limitsModalOpen: false }),
+
+  setLimits: (minBet, maxBet) => {
+    const s = get().session;
+    if (!s) return;
+    const session: Session = {
+      ...s,
+      minBet: Math.max(0, Math.round(minBet)),
+      maxBet: maxBet === null ? null : Math.max(0, Math.round(maxBet)),
+    };
+    set({ session, limitsModalOpen: false });
+    scheduleSave(session);
+  },
 
   startHand: () => {
     const s = get().session;
@@ -248,6 +294,19 @@ export const useGameStore = create<GameState>()((set, get) => ({
     set({ session, betAmount: BET_STEP });
     scheduleSave(session);
     get().nextPlayer();
+  },
+
+  // Validated entry point for voluntary bets/raises (the BET button + Enter key).
+  bet: (targetTotal) => {
+    const s = get().session;
+    if (!s) return;
+    const current = s.players[s.currentPlayerIndex];
+    const result = validateBetAmount(s, current, targetTotal);
+    if (!result.ok) {
+      set({ toast: result.reason ?? null });
+      return;
+    }
+    get().placeBet(targetTotal);
   },
 
   call: () => {

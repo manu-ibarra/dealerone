@@ -4,8 +4,18 @@ import { useEffect } from "react";
 import { BET_STEP, useGameStore } from "./store";
 
 export function useGameKeyboard() {
-  const { nextPlayer, prevPlayer, nextUnactedPlayer, adjustBet, placeBet, fold, check, allIn, betAmount } =
-    useGameStore();
+  const {
+    nextPlayer,
+    prevPlayer,
+    nextUnactedPlayer,
+    adjustBet,
+    bet,
+    fold,
+    check,
+    allIn,
+    betAmount,
+    openLimitsModal,
+  } = useGameStore();
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -30,7 +40,7 @@ export function useGameKeyboard() {
           break;
         case "Enter":
           e.preventDefault();
-          placeBet(betAmount);
+          bet(betAmount);
           break;
         case "f":
         case "F":
@@ -44,6 +54,10 @@ export function useGameKeyboard() {
         case "A":
           allIn();
           break;
+        case "l":
+        case "L":
+          openLimitsModal();
+          break;
         case " ":
           e.preventDefault();
           nextUnactedPlayer();
@@ -53,5 +67,5 @@ export function useGameKeyboard() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [nextPlayer, prevPlayer, nextUnactedPlayer, adjustBet, placeBet, fold, check, allIn, betAmount]);
+  }, [nextPlayer, prevPlayer, nextUnactedPlayer, adjustBet, bet, fold, check, allIn, betAmount, openLimitsModal]);
 }
