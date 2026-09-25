@@ -1,8 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { bettingRoundComplete, roundHighestBet, useGameStore } from "@/lib/store";
-import type { Player } from "@/lib/types";
+import {
+  bettingRoundComplete,
+  computePots,
+  isAllInRunout,
+  roundHighestBet,
+  useGameStore,
+} from "@/lib/store";
+import type { Player, Pot } from "@/lib/types";
 import LimitsModal from "./LimitsModal";
 
 const ROUND_LABEL: Record<string, string> = {
@@ -30,14 +36,18 @@ export default function ActionPanel() {
     fold,
     check,
     nextStreet,
+    fastForwardToShowdown,
     awardPot,
+    finishHandAward,
     startHand,
     limitsModalOpen,
     openLimitsModal,
     closeLimitsModal,
     setLimits,
   } = useGameStore();
-  const [winnerPanelOpen, setWinnerPanelOpen] = useState(false);
+
+  const [awarding, setAwarding] = useState(false);
+  const [awardIndex, setAwardIndex] = useState(0);
   const [winners, setWinners] = useState<string[]>([]);
 
   if (!session) return null;
@@ -45,6 +55,8 @@ export default function ActionPanel() {
   const dealer = session.players[session.dealerIndex];
   const nonFolded = session.players.filter((p) => p.status !== "folded");
   const handConcluded = session.round === "showdown" || nonFolded.length <= 1;
+  const runout = isAllInRunout(session);
+  const pots = computePots(session);
 
   if (!current) return null;
 
@@ -52,8 +64,6 @@ export default function ActionPanel() {
   const canCheck = current.status === "active" && current.currentBet === highestBet;
   const amountToCall = highestBet - current.currentBet;
   const roundComplete = bettingRoundComplete(session);
-  const anteOnly =
-    session.round === "preflop" && nonFolded.every((p) => p.currentBet === session.entryFee);
 
   const quickChips = [
     { label: "5", value: 5, isAllIn: false },
@@ -65,9 +75,26 @@ export default function ActionPanel() {
     { label: "ALL IN", value: current.currentBet + current.stack, isAllIn: true },
   ];
 
-  const openWinnerPanel = () => {
-    setWinners(nonFolded.length === 1 ? [nonFolded[0].id] : []);
-    setWinnerPanelOpen(true);
+  const openWinnerFlow = () => {
+    setAwardIndex(0);
+    setWinners(pots[0]?.eligiblePlayerIds.length === 1 ? [pots[0].eligiblePlayerIds[0]] : []);
+    setAwarding(true);
+  };
+
+  const confirmAward = () => {
+    const pot = pots[awardIndex];
+    if (!pot || winners.length === 0) return;
+    awardPot(pot.amount, winners);
+    const next = awardIndex + 1;
+    if (next < pots.length) {
+      setAwardIndex(next);
+      setWinners(pots[next].eligiblePlayerIds.length === 1 ? [pots[next].eligiblePlayerIds[0]] : []);
+    } else {
+      finishHandAward();
+      setAwarding(false);
+      setAwardIndex(0);
+      setWinners([]);
+    }
   };
 
   return (
@@ -84,10 +111,16 @@ export default function ActionPanel() {
         <div className="flex items-center justify-between text-sm text-ink/60">
           <span>
             Stack: <span className="font-semibold text-ink">${session.buyIn}</span>
-            {session.entryFee > 0 && (
+            {session.obligMode === "ante" && session.entryFee > 0 && (
               <>
                 {" "}
                 · Ante: <span className="font-semibold text-ink">${session.entryFee}</span>
+              </>
+            )}
+            {session.obligMode === "blinds" && (
+              <>
+                {" "}
+                · Ciegas: <span className="font-semibold text-ink">${session.smallBlind}/${session.bigBlind}</span>
               </>
             )}
           </span>
@@ -99,15 +132,7 @@ export default function ActionPanel() {
           </span>
         </div>
 
-        <div className="mt-2 text-center">
-          <div className="text-xs font-semibold uppercase tracking-wide text-ink/50">Bote</div>
-          <div className="text-5xl font-bold text-terracotta">${session.pot}</div>
-          {anteOnly && session.entryFee > 0 && (
-            <div className="mt-1 text-xs text-ink/50">
-              {nonFolded.length} jugadores x ${session.entryFee}
-            </div>
-          )}
-        </div>
+        <PotDisplay pots={pots} players={session.players} />
 
         <div className="mt-8 text-center">
           <div className="text-xs font-semibold uppercase tracking-wide text-ink/50">Turno de</div>
@@ -127,27 +152,34 @@ export default function ActionPanel() {
               Nueva Mano
             </button>
           </div>
-        ) : winnerPanelOpen ? (
+        ) : awarding ? (
           <WinnerSelector
-            players={nonFolded}
-            pot={session.pot}
+            players={session.players.filter((p) => pots[awardIndex]?.eligiblePlayerIds.includes(p.id))}
+            pot={pots[awardIndex]}
             winners={winners}
             setWinners={setWinners}
-            onAward={() => {
-              awardPot(winners.length ? winners : nonFolded.map((p) => p.id));
-              setWinnerPanelOpen(false);
-            }}
+            onAward={confirmAward}
           />
         ) : (
           <div className="flex justify-center py-6">
             <button
-              onClick={openWinnerPanel}
+              onClick={openWinnerFlow}
               className="rounded-full bg-terracotta px-8 py-3 text-sm font-semibold text-white hover:opacity-90"
             >
               Repartir Pozo / Elegir Ganador
             </button>
           </div>
         )
+      ) : runout ? (
+        <div className="flex flex-col items-center gap-3 py-6">
+          <p className="text-sm text-ink/60">Nadie puede seguir apostando — todos all-in o retirados.</p>
+          <button
+            onClick={fastForwardToShowdown}
+            className="rounded-full bg-terracotta px-8 py-3 text-sm font-semibold text-white hover:opacity-90"
+          >
+            Ir a Showdown (reparto automatico)
+          </button>
+        </div>
       ) : (
         <div className="space-y-6">
           {highestBet > 0 && !canCheck && (
@@ -259,6 +291,42 @@ export default function ActionPanel() {
   );
 }
 
+function PotDisplay({ pots, players }: { pots: Pot[]; players: Player[] }) {
+  const namesFor = (pot: Pot) =>
+    players
+      .filter((p) => pot.eligiblePlayerIds.includes(p.id))
+      .map((p) => p.name)
+      .join(", ");
+
+  if (pots.length <= 1) {
+    const pot = pots[0];
+    return (
+      <div className="mt-2 text-center">
+        <div className="text-xs font-semibold uppercase tracking-wide text-cloudy">BOTE</div>
+        <div className="text-5xl font-bold text-terracotta">${pot?.amount ?? 0}</div>
+        {pot && pot.amount > 0 && <div className="mt-1 text-[10px] text-ink">{namesFor(pot)}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 flex items-center justify-center gap-6">
+      {pots.map((pot, i) => (
+        <div key={i} className="flex items-center gap-6">
+          {i > 0 && <div className="h-10 w-px bg-cloudy" />}
+          <div className="text-center">
+            <div className="text-xs font-semibold uppercase tracking-wide text-cloudy">
+              {i === 0 ? "POZO PRINCIPAL" : "POZO SECUNDARIO"}
+            </div>
+            <div className="text-3xl font-bold text-terracotta">${pot.amount}</div>
+            <div className="mt-1 text-[10px] text-ink">{namesFor(pot)}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
     <span className="rounded border border-cloudy bg-white px-2 py-1 font-mono text-[11px]">
@@ -275,7 +343,7 @@ function WinnerSelector({
   onAward,
 }: {
   players: Player[];
-  pot: number;
+  pot: Pot | undefined;
   winners: string[];
   setWinners: (ids: string[]) => void;
   onAward: () => void;
@@ -283,10 +351,12 @@ function WinnerSelector({
   const toggle = (id: string) =>
     setWinners(winners.includes(id) ? winners.filter((w) => w !== id) : [...winners, id]);
 
+  if (!pot) return null;
+
   return (
     <div className="space-y-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">
-        Elegi ganador(es) — el bote se puede repartir
+        {pot.label} ${pot.amount} — Elegi ganador(es), se puede repartir
       </p>
       <div className="flex flex-wrap gap-2">
         {players.map((p) => (
@@ -306,7 +376,7 @@ function WinnerSelector({
         disabled={winners.length === 0}
         className="rounded-full bg-terracotta px-6 py-2 text-sm font-semibold text-white disabled:opacity-40"
       >
-        Repartir ${pot}
+        Repartir ${pot.amount}
       </button>
     </div>
   );

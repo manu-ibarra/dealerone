@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useGameStore } from "@/lib/store";
 import { useGameKeyboard } from "@/lib/useKeyboard";
 import ActionPanel from "@/components/ActionPanel";
+import BlackjackPanel from "@/components/BlackjackPanel";
 import HandRankings from "@/components/HandRankings";
 import Leaderboard from "@/components/Leaderboard";
 import Toast from "@/components/Toast";
@@ -27,6 +28,7 @@ export default function GamePage() {
   }, [session, router]);
 
   if (!session) return null;
+  const isBlackjack = session.gameType === "blackjack";
 
   return (
     <div className="flex h-screen w-full flex-col">
@@ -54,7 +56,7 @@ export default function GamePage() {
             </button>
           </div>
           <div className="h-full flex-1 overflow-hidden">
-            <ActionPanel />
+            {isBlackjack ? <BlackjackPanel /> : <ActionPanel />}
           </div>
         </div>
         <div className="scrollbar-thin-cloudy h-full w-1/4 overflow-y-auto border-l border-cloudy/40">
@@ -62,13 +64,15 @@ export default function GamePage() {
         </div>
       </div>
 
-      <div
-        className={`w-full shrink-0 overflow-hidden transition-all duration-300 ease-in-out ${
-          rankingsExpanded ? "h-[280px]" : "h-12"
-        }`}
-      >
-        <HandRankings expanded={rankingsExpanded} onToggle={() => setRankingsExpanded((v) => !v)} />
-      </div>
+      {!isBlackjack && (
+        <div
+          className={`w-full shrink-0 overflow-hidden transition-all duration-300 ease-in-out ${
+            rankingsExpanded ? "h-[280px]" : "h-12"
+          }`}
+        >
+          <HandRankings expanded={rankingsExpanded} onToggle={() => setRankingsExpanded((v) => !v)} />
+        </div>
+      )}
     </div>
   );
 }
